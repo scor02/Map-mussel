@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mussel Genetics Map — Demo</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-sA+e2H1gGz3sH1fK1iY7FQe5Gm4k6k9gKf2bZ6q5q0I=" crossorigin="" />
+  <!-- MarkerCluster CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <style>
+    :root{
+      --bg:#0f1724; /* deep navy */
+      --card:#0b1220;
+      --accent1:#7c5cff; /* purple */
+      --accent2:#26d07f; /* green */
+      --accent3:#3fb4ff; /* blue */
+      --muted:#9aa7c7;
+      color-scheme: dark;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#071026 0%, #071b2a 60%);font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
+    .app{
+      display:grid;
+      grid-template-columns: 46% 54%;
+      gap:18px;
+      height:100vh;
+      padding:18px;
+      box-sizing:border-box;
+      align-items:stretch;
+    }
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+      border-radius:12px;
+      box-shadow:0 6px 18px rgba(2,6,23,0.6);
+      padding:14px;
+      color:var(--muted);
+      position:relative;
+      overflow:hidden;
+    }
+    header h1{margin:0;font-size:1.05rem;color:white}
+    header p{margin:6px 0 0;font-size:0.85rem}
+    #map{height:calc(100% - 62px);border-radius:8px;margin-top:12px}
+    #network{height:calc(100% - 62px);border-radius:8px;margin-top:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent)}
+    .topbar{display:flex;gap:8px;align-items:center}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 10px;border-radius:10px;color:var(--muted);cursor:pointer}
+    .btn.primary{background:linear-gradient(90deg,var(--accent1),var(--accent3));border:none;color:white}
+    .legend{position:absolute;right:18px;top:18px;background:rgba(6,10,18,0.6);padding:8px;border-radius:10px;font-size:0.85rem}
+    .node-label{pointer-events:none;font-size:10px;fill:white}
+    .footer{position:absolute;left:14px;bottom:12px;font-size:12px;color:var(--muted)}
+    a.small{color:var(--accent3);text-decoration:none}
+    .controls{display:flex;gap:8px;align-items:center}
+    .hint{font-size:12px;color:var(--muted)}
+
+    /* mobile fallback */
+    @media (max-width:900px){
+      .app{grid-template-columns:1fr;grid-auto-rows:50vh}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="card" id="mapCard">
+      <div class="topbar">
+        <div style="flex:1">
+          <h1>Mussel Sampling Map</h1>
+          <p>Click a marker to open the paper & genetic profile.</p>
+        </div>
+        <div class="controls">
+          <button class="btn" id="showNetworkBtn">Show Genetic Network</button>
+          <button class="btn" id="resetViewBtn">Reset View</button>
+        </div>
+      </div>
+      <div id="map"></div>
+      <div class="legend" id="legend">Marker = sample • Click → details</div>
+      <div class="footer">Demo project • Replace <code>DATA</code> in the file with your CSV/JSON</div>
+    </div>
+
+    <div class="card" id="networkCard">
+      <div class="topbar">
+        <div style="flex:1">
+          <h1>Genetic Similarity Network</h1>
+          <p>Interactive force-directed graph (click a node to focus on the sample)</p>
+        </div>
+        <div class="controls">
+          <button class="btn primary" id="showMapBtn">Back to Map</button>
+          <label class="hint">Similarity threshold</label>
+          <input id="simThreshold" type="range" min="0" max="1" step="0.01" value="0.35" />
+        </div>
+      </div>
+      <div id="network"></div>
+    </div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+
+  <script>
+  /****************************************************************
+   * Dummy DATA: medium dataset (18 samples)
+   * Replace this whole block with an import or a fetch to your CSV/JSON
+   * Expected shape: samples: [{id, lat, lng, paper, genetic_page, species}],
+   * distanceMatrix: 2D array with pairwise genetic distances (0..1)
+   ****************************************************************/
+  const DATA = (function(){
+    const samples = [
+      {id:'MSL_001', lat:51.5074, lng:-0.1278, paper:'https://doi.org/10.1000/example1', genetic_page:'https://example.org/mussel/MSL_001', species:'Mytilus edulis'},
+      {id:'MSL_002', lat:48.8566, lng:2.3522, paper:'https://doi.org/10.1000/example2', genetic_page:'https://example.org/mussel/MSL_002', species:'Mytilus galloprovincialis'},
+      {id:'MSL_003', lat:52.5200, lng:13.4050, paper:'https://doi.org/10.1000/example3', genetic_page:'https://example.org/mussel/MSL_003', species:'Mytilus trossulus'},
+      {id:'MSL_004', lat:59.3293, lng:18.0686, paper:'https://doi.org/10.1000/example4', genetic_page:'https://example.org/mussel/MSL_004', species:'Mytilus edulis'},
+      {id:'MSL_005', lat:55.6761, lng:12.5683, paper:'https://doi.org/10.1000/example5', genetic_page:'https://example.org/mussel/MSL_005', species:'Mytilus edulis'},
+      {id:'MSL_006', lat:40.4168, lng:-3.7038, paper:'https://doi.org/10.1000/example6', genetic_page:'https://example.org/mussel/MSL_006', species:'Mytilus galloprovincialis'},
+      {id:'MSL_007', lat:37.9838, lng:23.7275, paper:'https://doi.org/10.1000/example7', genetic_page:'https://example.org/mussel/MSL_007', species:'Mytilus galloprovincialis'},
+      {id:'MSL_008', lat:41.9028, lng:12.4964, paper:'https://doi.org/10.1000/example8', genetic_page:'https://example.org/mussel/MSL_008', species:'Mytilus galloprovincialis'},
+      {id:'MSL_009', lat:45.4642, lng:9.19, paper:'https://doi.org/10.1000/example9', genetic_page:'https://example.org/mussel/MSL_009', species:'Mytilus trossulus'},
+      {id:'MSL_010', lat:50.0755, lng:14.4378, paper:'https://doi.org/10.1000/example10', genetic_page:'https://example.org/mussel/MSL_010', species:'Mytilus edulis'},
+      {id:'MSL_011', lat:53.3498, lng:-6.2603, paper:'https://doi.org/10.1000/example11', genetic_page:'https://example.org/mussel/MSL_011', species:'Mytilus edulis'},
+      {id:'MSL_012', lat:38.7223, lng:-9.1393, paper:'https://doi.org/10.1000/example12', genetic_page:'https://example.org/mussel/MSL_012', species:'Mytilus galloprovincialis'},
+      {id:'MSL_013', lat:43.3247, lng:-1.9782, paper:'https://doi.org/10.1000/example13', genetic_page:'https://example.org/mussel/MSL_013', species:'Mytilus trossulus'},
+      {id:'MSL_014', lat:44.4280, lng:26.1033, paper:'https://doi.org/10.1000/example14', genetic_page:'https://example.org/mussel/MSL_014', species:'Mytilus edulis'},
+      {id:'MSL_015', lat:36.7213, lng:-4.4214, paper:'https://doi.org/10.1000/example15', genetic_page:'https://example.org/mussel/MSL_015', species:'Mytilus galloprovincialis'},
+      {id:'MSL_016', lat:60.1695, lng:24.9354, paper:'https://doi.org/10.1000/example16', genetic_page:'https://example.org/mussel/MSL_016', species:'Mytilus edulis'},
+      {id:'MSL_017', lat:47.4979, lng:19.0402, paper:'https://doi.org/10.1000/example17', genetic_page:'https://example.org/mussel/MSL_017', species:'Mytilus trossulus'},
+      {id:'MSL_018', lat:38.7228, lng:35.4876, paper:'https://doi.org/10.1000/example18', genetic_page:'https://example.org/mussel/MSL_018', species:'Mytilus galloprovincialis'}
+    ];
+
+    // random-ish symmetric distance matrix between 0 and 1 (0 = identical)
+    const n = samples.length;
+    let distanceMatrix = Array.from({length:n},()=>Array(n).fill(0));
+    for(let i=0;i<n;i++){
+      for(let j=i+1;j<n;j++){
+        // create clusters so network looks meaningful
+        let base = (samples[i].species === samples[j].species) ? 0.2 : 0.6;
+        let rnd = Math.min(0.95, Math.max(0.05, base + (Math.random()-0.5)*0.35));
+        distanceMatrix[i][j] = distanceMatrix[j][i] = parseFloat(rnd.toFixed(3));
+      }
+    }
+
+    return {samples, distanceMatrix};
+  })();
+
+  /****************************************************************
+   * Map: Leaflet with clusters
+   ****************************************************************/
+  const map = L.map('map', {preferCanvas:true}).setView([48.5, 9], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,
+    attribution:'© OpenStreetMap contributors'
+  }).addTo(map);
+
+  const markers = L.markerClusterGroup();
+  const sampleIdToMarker = {};
+  DATA.samples.forEach((s,i)=>{
+    const color = s.species.includes('galloprov') ? '#26d07f' : (s.species.includes('tross') ? '#7c5cff' : '#3fb4ff');
+    const marker = L.circleMarker([s.lat,s.lng],{radius:8,fillColor:color,color:'#fff',weight:1,fillOpacity:0.9})
+      .bindPopup(`<strong>${s.id}</strong><br>${s.species}<br><a href="${s.paper}" target="_blank">Open paper</a><br><a href="${s.genetic_page}" target="_blank">Genetic profile</a><br><button onclick="focusNetwork('${s.id}')" style="margin-top:6px;padding:6px;border-radius:6px;background:#222;color:white;border:none;cursor:pointer">View in network</button>`);
+    marker.on('click', ()=>{
+      // open popup handled by default
+    });
+    markers.addLayer(marker);
+    sampleIdToMarker[s.id] = marker;
+  });
+  map.addLayer(markers);
+
+  /****************************************************************
+   * Network: build similarity graph from distance matrix
+   ****************************************************************/
+  function buildGraphFromDistanceMatrix(samples, distanceMatrix){
+    const n = samples.length;
+    // find max to normalize
+    let maxd = 0;
+    for(let i=0;i<n;i++) for(let j=i+1;j<n;j++) if(distanceMatrix[i][j] > maxd) maxd = distanceMatrix[i][j];
+    if(maxd === 0) maxd = 1;
+    const nodes = samples.map((s,i)=>({id:s.id,index:i, species:s.species}));
+    const links = [];
+    for(let i=0;i<n;i++){
+      for(let j=i+1;j<n;j++){
+        const d = distanceMatrix[i][j];
+        const similarity = 1 - (d/maxd); // 0..1
+        links.push({source:samples[i].id, target:samples[j].id, similarity:parseFloat(similarity.toFixed(3)), distance:d});
+      }
+    }
+    return {nodes, links};
+  }
+
+  let graph = buildGraphFromDistanceMatrix(DATA.samples, DATA.distanceMatrix);
+
+  // draw network with d3
+  const netEl = document.getElementById('network');
+  const width = netEl.clientWidth || 800;
+  const height = netEl.clientHeight || 800;
+
+  const svg = d3.select('#network').append('svg').attr('width','100%').attr('height','100%')
+    .attr('viewBox',`0 0 ${Math.max(800,width)} ${Math.max(600,height)}`);
+
+  const gLinks = svg.append('g').attr('class','links');
+  const gNodes = svg.append('g').attr('class','nodes');
+
+  function renderNetwork(threshold=0.35){
+    const filteredLinks = graph.links.filter(l => l.similarity >= threshold);
+    // link width scaled by similarity
+    const link = gLinks.selectAll('line').data(filteredLinks, d=>d.source+'-'+d.target);
+    link.join(
+      enter => enter.append('line').attr('stroke-width', d=>Math.max(0.7, d.similarity*6)).attr('stroke-opacity',0.7),
+      update => update,
+      exit => exit.remove()
+    ).attr('stroke',d=>d3.interpolateCool(d.similarity));
+
+    const node = gNodes.selectAll('g').data(graph.nodes, d=>d.id);
+    const nodeEnter = node.join(
+      enter => {
+        const g = enter.append('g').attr('class','node');
+        g.append('circle').attr('r',7).attr('fill',d=> d.species.includes('galloprov')? '#26d07f':(d.species.includes('tross')? '#7c5cff' : '#3fb4ff')).attr('stroke','rgba(255,255,255,0.06)').attr('stroke-width',1.5).attr('cursor','pointer');
+        g.append('text').text(d=>d.id).attr('x',10).attr('y',4).attr('class','node-label');
+        return g;
+      },
+      update => update,
+      exit => exit.remove()
+    );
+
+    // simulation
+    if(window.simulation) window.simulation.stop();
+    window.simulation = d3.forceSimulation(graph.nodes)
+      .force('link', d3.forceLink(filteredLinks).id(d=>d.id).distance(d=> 100*(1 - d.similarity) + 30).strength(0.7))
+      .force('charge', d3.forceManyBody().strength(-160))
+      .force('center', d3.forceCenter(Math.max(800,width)/2, Math.max(600,height)/2))
+      .force('collision', d3.forceCollide().radius(16))
+      .on('tick', ticked);
+
+    function ticked(){
+      gLinks.selectAll('line')
+        .attr('x1',d=>d.source.x)
+        .attr('y1',d=>d.source.y)
+        .attr('x2',d=>d.target.x)
+        .attr('y2',d=>d.target.y);
+      gNodes.selectAll('g').attr('transform',d=>`translate(${d.x},${d.y})`);
+    }
+
+    // interactions
+    gNodes.selectAll('g').on('click', (event,d)=>{
+      // center map on that sample and open popup
+      const s = DATA.samples.find(x=>x.id===d.id);
+      if(s){
+        map.setView([s.lat,s.lng],8);
+        const m = sampleIdToMarker[s.id];
+        if(m){
+          m.openPopup();
+        }
+      }
+      // highlight node briefly
+      gNodes.selectAll('circle').attr('opacity',0.35);
+      d3.select(event.currentTarget).select('circle').attr('opacity',1).attr('r',11);
+      setTimeout(()=>{
+        gNodes.selectAll('circle').attr('opacity',1).attr('r',7);
+      },1200);
+    });
+
+    // tooltips
+    gNodes.selectAll('g').on('mouseover', (event,d)=>{
+      d3.select(event.currentTarget).select('text').attr('fill','white');
+    }).on('mouseout', (event,d)=>{
+      d3.select(event.currentTarget).select('text').attr('fill',null);
+    });
+  }
+
+  // initial render
+  renderNetwork(parseFloat(document.getElementById('simThreshold').value));
+
+  // controls
+  document.getElementById('showNetworkBtn').addEventListener('click', ()=>{
+    document.getElementById('mapCard').style.display='none';
+    document.getElementById('networkCard').style.display='block';
+    // re-render to ensure sizes
+    setTimeout(()=>{ renderNetwork(parseFloat(document.getElementById('simThreshold').value)); },200);
+  });
+  document.getElementById('showMapBtn').addEventListener('click', ()=>{
+    document.getElementById('mapCard').style.display='block';
+    document.getElementById('networkCard').style.display='none';
+  });
+  document.getElementById('resetViewBtn').addEventListener('click', ()=>{
+    map.setView([48.5,9],4);
+  });
+  document.getElementById('simThreshold').addEventListener('input', (e)=>{
+    renderNetwork(parseFloat(e.target.value));
+  });
+
+  // start with network hidden on mobile/desktop
+  document.getElementById('networkCard').style.display='none';
+
+  // function to be called from popup button (global scope)
+  window.focusNetwork = function(sampleId){
+    document.getElementById('showNetworkBtn').click();
+    // after showing network, slightly highlight node
+    setTimeout(()=>{
+      const node = graph.nodes.find(n=>n.id===sampleId);
+      if(!node) return;
+      // simulate click behaviour
+      const gNodes = d3.selectAll('.node');
+      gNodes.each(function(d){ if(d.id===sampleId){ d3.select(this).dispatch('click'); } });
+    },400);
+  };
+
+  // expose DATA in console for easy debugging
+  console.log('DATA preview:', DATA);
+  </script>
+</body>
+</html>

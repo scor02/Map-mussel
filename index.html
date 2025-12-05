@@ -43,6 +43,40 @@
       font-size: 1.3rem;
     }
 
+    /* ===========================
+   MAP LEGEND STYLES
+   =========================== */
+#legend {
+  position: absolute;
+  top: 70px;               /* adjust downward from the header */
+  left: 25px;              /* distance from left side */
+  background: rgba(0,0,0,0.45);
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.9rem;
+  line-height: 1.4rem;
+  z-index: 9999;           /* make sure it's above the map */
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-color {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.legend-color.blue { background: #3fb4ff; }  /* Blue = Gene A */
+.legend-color.red  { background: #ff4b4b; }  /* Red = Gene B */
+
     #mapContainer {
       height: calc(100% - 60px);
       border-radius: 10px;
@@ -72,8 +106,21 @@
   <div class="container">
     <div class="card">
       <h1>Mussel Sampling Map</h1>
-
+      <div class="card">
+      <h1>Mussel Sampling Map</h1>
+    
+      <!-- 🌈 LEGEND BOX -->
+      <div id="legend">
+        <div class="legend-item">
+          <span class="legend-color blue"></span> Blue = Gene A
+        </div>
+        <div class="legend-item">
+          <span class="legend-color red"></span> Red = Gene B
+        </div>
+      </div>
+    
       <div id="mapContainer">
+
         <span id="mapLoading">Loading map…</span>
       </div>
     </div>
